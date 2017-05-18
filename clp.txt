@@ -1,0 +1,201 @@
+#include <avr/io.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <avr/interrupt.h> 
+
+#define clrbit(var,bit) var &= ~(1<<bit)
+#define setbit(var,bit) var |= 1<<bit
+
+void initLCD();
+void putchLCD(char ch);
+void putsLCD(char* ch);
+void gotoLC(char line, char col);
+void clrLCD();
+char kbscan();
+void sysinit();
+
+#define C1 1
+#define C2 2
+#define C3 3
+
+volatile unsigned char kbhit = 0;
+volatile char kbcode = 0; 
+
+int main(){
+
+   unsigned char stare = C1;
+   char buf_pit[4];
+   unsigned long int a,b,c;
+   int spion=0;
+
+   sysinit();
+   TCCR2 = 0b00001110;
+   OCR2 = 250-1;  //N=250
+   TCCR0 = 0b01101100;
+   DDRB=0b11100000;
+
+   OCR0=128; //50% duty cycle
+   setbit(DDRB,3);//OC0 pin is output
+
+   TIMSK |= 1<<OCIE2;
+   setbit(SREG,7);
+   
+
+   while(1){
+
+      //c pitagoreic start
+      if( kbhit && kbcode>='0' && kbcode<='9'){
+         kbhit=0;
+
+         switch(stare){
+         	case C1:   //cifra 0
+               //sterge linia 1 a LCD-ului
+               gotoLC(1,1);
+               putsLCD("                ");
+               buf_pit[0]=kbcode;
+               //scrie prima cifra
+               gotoLC(1,1);
+               putchLCD(kbcode);
+               stare=C2;
+               break;
+
+            case C2:
+               buf_pit[1]=kbcode;
+               //scrie a doua cifra
+               gotoLC(1,2);
+               putchLCD(kbcode);
+               stare=C3;
+               break;
+         
+            case C3:
+               buf_pit[2]=kbcode;
+               buf_pit[3]='\0';
+               //scrie a treia cifra
+               gotoLC(1,3);
+               putchLCD(kbcode);
+               //scrie "Busy..." pe linia 1, din coloana 5
+               gotoLC(1,5);
+               putsLCD("Busy...");
+               //calculeaza c
+               c = atoi(buf_pit);
+               spion=0;
+               for(a = 1;a<999;a++){
+                  for(b = 1;b<999;b++){
+                  //...verifica daca a^2 + b^2 = c^2
+                     if(a*a+b*b==c*c){
+                        spion=1;
+                        goto line;
+                     }
+                  }
+               }
+               line:
+               gotoLC(1,5);
+      		   if(spion==1){
+      		      putsLCD("       PYTH");
+      		   }
+      		   else{
+      		      putsLCD("      NPYTH");
+      		   }
+               stare=C1;
+               break;
+         }//end switch     
+      }// end c pitagoreic      
+   }//end while
+}//end main
+
+
+ISR(TIMER2_COMP_vect){ 
+
+   static unsigned char cycles=0;
+   static unsigned char  sec = 0, min = 46, h = 11;
+   static char ch = 0; 
+
+   static unsigned char code_now=0x7f, code_ante;
+   static unsigned char loop_cnt=0;
+
+   static int lumi=50;  //luminozitatea
+   static char buf_lumi[4];
+
+   if(loop_cnt==5){
+         code_ante=code_now;
+         code_now = kbscan();
+         if(code_now!=0x7f && code_ante==0x7f){
+            kbhit=1;
+            kbcode=code_now;
+         }
+         loop_cnt=0;
+   }
+
+   loop_cnt++;
+
+   if(cycles==125){//k=125
+      cycles = 0;
+      sec++;
+      if(sec == 60){
+         sec = 0 ;
+         min++;
+         if(min == 60){
+            min = 0 ;
+            h++;
+            if(h == 24){
+               h = 0 ;
+            }
+         }
+
+      }
+   }
+
+
+   //PWM start
+   if(kbhit  && (kbcode == 'C' || kbcode == 'D')){
+      if(kbcode == 'C'){
+         //creste luminozitatea
+         if(lumi<100){
+            lumi+=5;
+         }
+      }
+
+      if(kbcode == 'D'){
+         //lumi=//...scade luminozitatea
+         if(lumi>0){
+            lumi-=5;
+         }
+      }
+      OCR0=(255*lumi)/100;
+      gotoLC(2,11);
+      putsLCD("L=");
+      itoa(lumi,buf_lumi,10);
+      putsLCD(buf_lumi);
+      putsLCD("%  " );
+      kbhit=0;
+  }
+
+
+  gotoLC(2,1);
+  cycles++;
+
+  if(h>9){
+    ch = h/10 + '0';
+    putchLCD(ch);
+    ch = h%10 + '0';
+    putchLCD(ch);
+  }
+  else{
+       putchLCD(' ');
+       ch = h + '0';
+       putchLCD(ch);
+  }
+      
+   putchLCD(':');
+   ch = min/10 +'0';
+   putchLCD(ch);
+   ch= min%10 +'0';
+   putchLCD(ch);
+   putchLCD(':');
+   ch=sec/10 + '0';
+   putchLCD(ch);
+   ch=sec%10 + '0';
+   putchLCD(ch);
+
+}
+
